@@ -4,7 +4,6 @@
   const tabs: { key: typeof viewStore.tab; label: string }[] = [
     { key: "sources", label: "Sources" },
     { key: "frames", label: "Frames" },
-    { key: "training", label: "Training" },
     { key: "settings", label: "Settings" },
   ];
 </script>

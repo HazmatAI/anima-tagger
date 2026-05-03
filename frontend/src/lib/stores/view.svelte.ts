@@ -1,4 +1,4 @@
-export type Tab = "sources" | "frames" | "training" | "settings";
+export type Tab = "sources" | "frames" | "settings";
 
 class ViewStore {
   tab = $state<Tab>("frames");

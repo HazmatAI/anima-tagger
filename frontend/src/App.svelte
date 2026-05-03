@@ -13,7 +13,6 @@
   import CreateProjectModal from "$lib/components/CreateProjectModal.svelte";
   import SourcesTab from "$lib/components/SourcesTab.svelte";
   import SettingsTab from "$lib/components/SettingsTab.svelte";
-  import TrainingTab from "$lib/components/TrainingTab.svelte";
 
   let conn: Connection | null = null;
   let regexOpen = $state(false);
@@ -64,8 +63,6 @@
         <SourcesTab />
       {:else if viewStore.tab === "frames"}
         <FramesTab />
-      {:else if viewStore.tab === "training"}
-        <TrainingTab />
       {:else if viewStore.tab === "settings"}
         <SettingsTab />
       {/if}

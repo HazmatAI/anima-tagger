@@ -27,6 +27,7 @@
   let llmModelSelected = $derived(!!projectsStore.active?.llm?.model);
 
   let retagBusy = $state(false);
+  let exportBusy = $state(false);
 
   async function deleteSelected() {
     const slug = projectsStore.active?.slug;
@@ -61,7 +62,6 @@
             // retag (only the on-disk .txt does), so the thumb wouldn't
             // otherwise know to refetch.
             framesStore.markRetagged(filename);
-            framesStore.deselect([filename]);
           }
         } catch {
           // Swallow per-frame errors and let the failed frame stay selected
@@ -98,7 +98,6 @@
             // written rather than the one the user clicked.
             const eff = res.effective_filenames?.[0] ?? filename;
             framesStore.markDescribed(eff);
-            framesStore.deselect([filename]);
           }
         } catch {
           // Failed frames stay selected as the retry hint — no popup, same
@@ -109,6 +108,26 @@
       }
     } finally {
       retagBusy = false;
+    }
+  }
+
+  async function exportSelected() {
+    const slug = projectsStore.active?.slug;
+    if (!slug || exportBusy) return;
+    const filenames = framesStore.selectedFilenames();
+    if (filenames.length === 0) return;
+    exportBusy = true;
+    try {
+      const res = await api.exportSelectedFrames(slug, filenames);
+      const skipped = res.skipped.length > 0
+        ? `\n\nSkipped ${res.skipped.length} frame${res.skipped.length === 1 ? "" : "s"} that were missing on disk.`
+        : "";
+      alert(
+        `Exported ${res.exported} selected frame${res.exported === 1 ? "" : "s"} to:\n\n` +
+        `${res.export_dir}${skipped}`,
+      );
+    } finally {
+      exportBusy = false;
     }
   }
 
@@ -169,6 +188,13 @@
            still reads as a single unit. -->
       <div class="gradient-accent text-white h-7 pl-3 pr-1 rounded-full inline-flex items-center gap-1.5 text-xs font-medium border border-white/10 shadow-[0_2px_12px_rgba(99,102,241,0.4)]">
         <span class="bg-white/20 px-2 py-0.5 rounded-full leading-none">{count} selected</span>
+        <button
+          type="button"
+          onclick={exportSelected}
+          disabled={exportBusy}
+          title="Export only the checked frames and their existing .txt tags into one clean folder"
+          class="bg-sky-500/30 hover:bg-sky-500/55 rounded-full px-2.5 h-5 transition-colors inline-flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+        >Export</button>
         <button
           type="button"
           onclick={deleteSelected}

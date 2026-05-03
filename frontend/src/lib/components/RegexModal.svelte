@@ -8,6 +8,7 @@
 
   let pattern = $state("");
   let replacement = $state("");
+  let addTag = $state("");
   let caseInsensitive = $state(false);
   // Each preview row carries the segment-by-segment split for both the
   // before and after lines. `match: true` segments are highlighted; the
@@ -17,6 +18,7 @@
   let preview = $state<{ before: Segment[]; after: Segment[] }[]>([]);
   let previewError = $state<string | null>(null);
   let applying = $state(false);
+  let addingTag = $state(false);
 
   let filenames = $derived(framesStore.selectedFilenames());
 
@@ -62,18 +64,49 @@
     return { before, after };
   }
 
+  function dedupeTagsLine(text: string): string {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of text.split(",")) {
+      const tag = raw.trim();
+      if (!tag || seen.has(tag)) continue;
+      seen.add(tag);
+      out.push(tag);
+    }
+    return out.join(", ");
+  }
+
   async function refreshPreview() {
     previewError = null;
     preview = [];
-    if (!pattern) return;
+    const slug = projectsStore.active?.slug;
+    if (!slug) return;
+    const sample = filenames.slice(0, 20);
     try {
+      if (addTag.trim()) {
+        const out: { before: Segment[]; after: Segment[] }[] = [];
+        for (const fn of sample) {
+          const t = await api.getTags(slug, fn);
+          const firstLine = t.text.split("\n", 1)[0];
+          const next = dedupeTagsLine(
+            firstLine ? `${addTag.trim()}, ${firstLine}` : addTag.trim(),
+          );
+          if (next !== firstLine) {
+            out.push({
+              before: [{ text: firstLine, match: false }],
+              after: [{ text: next, match: true }],
+            });
+          }
+        }
+        preview = out;
+        return;
+      }
+
+      if (!pattern) return;
       const flags = caseInsensitive ? "ig" : "g";
       // Use JS regex for the preview; the server uses Python's re, which is
       // very close but not identical. The server is authoritative on apply.
       const re = new RegExp(pattern, flags);
-      const slug = projectsStore.active?.slug;
-      if (!slug) return;
-      const sample = filenames.slice(0, 20);
       const out: { before: Segment[]; after: Segment[] }[] = [];
       for (const fn of sample) {
         const t = await api.getTags(slug, fn);
@@ -91,8 +124,8 @@
 
   $effect(() => {
     void refreshPreview();
-    // depends on: pattern, replacement, caseInsensitive, filenames
-    void pattern; void replacement; void caseInsensitive; void filenames;
+    // depends on: pattern, replacement, addTag, caseInsensitive, filenames
+    void pattern; void replacement; void addTag; void caseInsensitive; void filenames;
   });
 
   async function apply() {
@@ -116,12 +149,28 @@
       // showing on hover. Cheap to bump for unchanged frames too: the
       // next hover just refetches the same line.
       for (const fn of targets) framesStore.markRetagged(fn);
-      framesStore.deselect(targets);
       onclose();
     } catch (e) {
       previewError = String(e);
     } finally {
       applying = false;
+    }
+  }
+
+  async function applyAddTag() {
+    const slug = projectsStore.active?.slug;
+    const tag = addTag.trim();
+    if (!slug || !tag) return;
+    addingTag = true;
+    const targets = [...filenames];
+    try {
+      await api.bulkAddTag(slug, targets, tag);
+      for (const fn of targets) framesStore.markRetagged(fn);
+      onclose();
+    } catch (e) {
+      previewError = String(e);
+    } finally {
+      addingTag = false;
     }
   }
 </script>
@@ -146,6 +195,22 @@
     </p>
 
     <div class="space-y-3">
+      <label class="block">
+        <span class="text-[10px] uppercase text-slate-500 tracking-wide">Add Tag To Selection</span>
+        <input
+          bind:value={addTag}
+          class="w-full mt-1 px-3 py-2 bg-ink-950 border border-ink-700 rounded text-sm font-mono focus:outline-none focus:border-accent-500"
+          placeholder="red eyes"
+        />
+        <span class="block mt-1 text-[11px] text-slate-600">
+          Adds one tag to every selected image and keeps existing descriptions. Existing tags are not duplicated.
+        </span>
+      </label>
+
+      <div class="border-t border-ink-700 pt-3">
+        <span class="text-[10px] uppercase text-slate-600 tracking-wide">Regex Replace</span>
+      </div>
+
       <label class="block">
         <span class="text-[10px] uppercase text-slate-500 tracking-wide">Pattern</span>
         <input
@@ -174,9 +239,23 @@
       {#if previewError}
         <p class="text-red-400">{previewError}</p>
       {:else if preview.length === 0}
-        <p class="text-slate-500">{pattern ? "No matches in selection." : "Type a pattern to preview."}</p>
+        <p class="text-slate-500">
+          {#if addTag.trim()}
+            Tag already present on the previewed selection, or nothing to change.
+          {:else if pattern}
+            No matches in selection.
+          {:else}
+            Type a tag to add or a pattern to preview.
+          {/if}
+        </p>
       {:else}
-        <p class="text-slate-500 mb-2">{preview.length} of first 20 will change:</p>
+        <p class="text-slate-500 mb-2">
+          {#if addTag.trim()}
+            {preview.length} of first 20 will receive the tag:
+          {:else}
+            {preview.length} of first 20 will change:
+          {/if}
+        </p>
         {#each preview as p}
           <!-- whitespace-pre-wrap + break-words: long tag lines wrap onto
                multiple lines instead of getting truncated, so the changed
@@ -211,6 +290,12 @@
         onclick={onclose}
         class="px-4 py-2 text-xs rounded bg-ink-800 hover:bg-ink-700 text-slate-300"
       >Cancel</button>
+      <button
+        type="button"
+        onclick={applyAddTag}
+        disabled={!addTag.trim() || addingTag}
+        class="px-4 py-2 text-xs rounded bg-sky-500/85 hover:bg-sky-500 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+      >{addingTag ? "Adding…" : `Add tag to ${filenames.length}`}</button>
       <button
         type="button"
         onclick={apply}

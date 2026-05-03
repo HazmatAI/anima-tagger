@@ -198,6 +198,12 @@ export const bulkTagsReplace = (
   { method: "POST", body: JSON.stringify(body) },
 );
 
+export const bulkAddTag = (slug: string, filenames: string[], tag: string) =>
+  request<{ changed: number; unchanged: number; total: number; tag: string }>(
+    `/api/projects/${encodeURIComponent(slug)}/frames/bulk-add-tag`,
+    { method: "POST", body: JSON.stringify({ filenames, tag }) },
+  );
+
 export const bulkRetagDanbooru = (slug: string, filenames: string[]) =>
   request<{
     retagged: number;
@@ -221,6 +227,17 @@ export const bulkRetagLLM = (slug: string, filenames: string[]) =>
     effective_filenames: (string | null)[];
   }>(
     `/api/projects/${encodeURIComponent(slug)}/frames/bulk-retag-llm`,
+    { method: "POST", body: JSON.stringify({ filenames }) },
+  );
+
+export const exportSelectedFrames = (slug: string, filenames: string[]) =>
+  request<{
+    export_dir: string;
+    exported: number;
+    filenames: string[];
+    skipped: string[];
+  }>(
+    `/api/projects/${encodeURIComponent(slug)}/frames/export-selected`,
     { method: "POST", body: JSON.stringify({ filenames }) },
   );
 

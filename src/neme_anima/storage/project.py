@@ -422,6 +422,11 @@ class Project:
     def cache_dir_for(self, video_stem: str) -> Path:
         return self.root / "output" / "cache" / video_stem
 
+    @property
+    def export_selected_dir(self) -> Path:
+        """Stable clean export folder for the current checked-frame dataset."""
+        return self.root / "export" / "selected"
+
     # ---------------- training ----------------
 
     @property

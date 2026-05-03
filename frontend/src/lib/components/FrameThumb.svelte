@@ -9,10 +9,9 @@
   type Props = {
     frame: FrameRecord;
     selected: boolean;
-    /** Left-click on the image area opens the preview modal. */
+    /** Opens the preview modal from the dedicated preview button. */
     onpreview: () => void;
-    /** Middle-click on the image area, OR clicking the toggle pill, toggles
-     *  selection. Mods are forwarded so shift-range still works on middle-click. */
+    /** Clicking the tile or the toggle pill toggles selection. */
     onselect: (mods: { shift: boolean; ctrl: boolean }) => void;
   };
   const { frame, selected, onpreview, onselect }: Props = $props();
@@ -212,11 +211,7 @@
   // user onto the middle button.
   function onMainClick(ev: MouseEvent) {
     if (ev.button !== 0) return;
-    if (ev.shiftKey || ev.ctrlKey || ev.metaKey) {
-      onselect({ shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey });
-      return;
-    }
-    onpreview();
+    onselect({ shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey });
   }
 </script>
 
@@ -236,7 +231,8 @@
     onclick={onMainClick}
     onmousedown={onMouseDown}
     onauxclick={(e) => { if (e.button === 1) e.preventDefault(); }}
-    aria-label="Open frame {frame.filename} preview"
+    aria-label={selected ? `Deselect frame ${frame.filename}` : `Select frame ${frame.filename}`}
+    aria-pressed={selected}
   >
     <img src={imageUrl} alt="" class="w-full h-full object-cover" loading="lazy" />
 
@@ -294,6 +290,21 @@
       ></span>
     </div>
   {/if}
+
+  <button
+    type="button"
+    onclick={(e) => {
+      e.stopPropagation();
+      onpreview();
+    }}
+    title="Preview"
+    aria-label="Preview frame {frame.filename}"
+    class="absolute bottom-1.5 right-1.5 w-7 h-7 rounded-full bg-black/60 border border-white/20 text-white/85 hover:bg-black/80 hover:text-white flex items-center justify-center z-20 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+  >
+    <svg viewBox="0 0 16 16" class="w-3.5 h-3.5" fill="currentColor" aria-hidden="true">
+      <path d="M6.5 2a4.5 4.5 0 1 0 2.85 7.98l3.33 3.34a1 1 0 0 0 1.41-1.42L10.77 8.6A4.5 4.5 0 0 0 6.5 2zm0 1a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z"/>
+    </svg>
+  </button>
 
   <!-- Top-RIGHT toggle pill: emerald + checkmark when selected, neutral
        otherwise. Always visible; on top of the image button via z-20. -->

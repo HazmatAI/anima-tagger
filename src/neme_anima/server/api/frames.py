@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import secrets
+import shutil
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,15 @@ class BulkReplaceBody(BaseModel):
 
 
 class BulkRetagBody(BaseModel):
+    filenames: list[str]
+
+
+class BulkAddTagBody(BaseModel):
+    filenames: list[str]
+    tag: str
+
+
+class ExportSelectedBody(BaseModel):
     filenames: list[str]
 
 
@@ -106,6 +116,29 @@ def _resolve_tag_target(
     deriv_png, _deriv_txt, _spec = _crop_paths(project, base)
     img = deriv_png if deriv_png.is_file() else orig_png
     return img, txt, base
+
+
+def _resolve_export_target(
+    project: Project, filename: str,
+) -> tuple[Path, Path, str]:
+    """Pick the image+sidecar that should leave the app for external training.
+
+    If a frame has a saved crop derivative, export those cropped pixels under
+    the original filename so downstream tools see a clean one-png/one-txt
+    dataset without having to know about the app's internal `_crop` layout.
+    """
+    base = filename[: -len(CROP_SUFFIX)] if filename.endswith(CROP_SUFFIX) else filename
+    orig_png, txt = _frame_paths(project, base)
+    deriv_png, _legacy_txt, _spec = _crop_paths(project, base)
+    img = deriv_png if deriv_png.is_file() else orig_png
+    return img, txt, base
+
+
+def _safe_export_project_name(name: str) -> str:
+    """Return a filesystem-friendly project-name prefix for exported files."""
+    cleaned = re.sub(r"[^\w\-]+", "_", name.strip(), flags=re.UNICODE)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned or "project"
 
 
 @router.get("/{slug}/frames")
@@ -393,6 +426,44 @@ async def bulk_tags_replace(
     return {"changed": changed}
 
 
+@router.post("/{slug}/frames/bulk-add-tag")
+async def bulk_add_tag(
+    request: Request, slug: str, body: BulkAddTagBody,
+) -> dict:
+    """Append one manual tag to the danbooru line, preserving descriptions.
+
+    The final write still flows through ``join_sidecar`` so blanks and
+    duplicates are normalized exactly the same way as every other tag edit.
+    """
+    project = _load(request, slug)
+    tag = body.tag.strip()
+    if not tag:
+        raise HTTPException(status_code=422, detail="tag must not be empty")
+
+    changed = 0
+    unchanged = 0
+    for filename in body.filenames:
+        _, txt = _frame_paths(project, filename)
+        if not txt.exists():
+            unchanged += 1
+            continue
+        before = txt.read_text(encoding="utf-8")
+        danbooru, description = split_sidecar(before)
+        next_danbooru = f"{tag}, {danbooru}" if danbooru else tag
+        final = join_sidecar(next_danbooru, description)
+        if final != before:
+            txt.write_text(final, encoding="utf-8")
+            changed += 1
+        else:
+            unchanged += 1
+    return {
+        "changed": changed,
+        "unchanged": unchanged,
+        "total": len(body.filenames),
+        "tag": tag,
+    }
+
+
 @router.post("/{slug}/frames/bulk-retag-danbooru")
 async def bulk_retag_danbooru(
     request: Request, slug: str, body: BulkRetagBody,
@@ -501,6 +572,56 @@ async def bulk_retag_llm(
         # failed. When the crop took priority over the original, the entry
         # is the crop's filename so the frontend pops the right row.
         "effective_filenames": effective_filenames,
+    }
+
+
+@router.post("/{slug}/frames/export-selected")
+async def export_selected(
+    request: Request, slug: str, body: ExportSelectedBody,
+) -> dict:
+    """Copy the checked frames and their existing sidecars into one clean folder.
+
+    The export is intentionally trainer-agnostic: one stable folder, only the
+    currently selected frames, and no extra metadata that another trainer would
+    have to strip away. Re-running the export replaces the folder contents so
+    the user never has to hunt through old batches.
+    """
+    project = _load(request, slug)
+    export_dir = project.export_selected_dir
+    export_dir.mkdir(parents=True, exist_ok=True)
+    export_prefix = _safe_export_project_name(project.name)
+    pad = max(3, len(str(max(1, len(body.filenames)))))
+
+    for child in export_dir.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+    exported: list[str] = []
+    skipped: list[str] = []
+
+    next_idx = 1
+    for filename in body.filenames:
+        png, txt, _source_name = _resolve_export_target(project, filename)
+        if not png.is_file():
+            skipped.append(filename)
+            continue
+
+        export_name = f"{export_prefix}_{next_idx:0{pad}d}"
+        shutil.copy2(png, export_dir / f"{export_name}.png")
+        if txt.is_file():
+            shutil.copy2(txt, export_dir / f"{export_name}.txt")
+        else:
+            (export_dir / f"{export_name}.txt").write_text("", encoding="utf-8")
+        exported.append(export_name)
+        next_idx += 1
+
+    return {
+        "export_dir": str(export_dir.resolve()),
+        "exported": len(exported),
+        "filenames": exported,
+        "skipped": skipped,
     }
 
 
