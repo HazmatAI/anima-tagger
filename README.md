@@ -1,3 +1,9 @@
+Fork note (HazmatAI/anima-tagger):this branch is currently tuned for extraction/tagging workflow only.
+Compared to upstream, the training step is hidden, selected frames can be exported directly with their .txt tags,
+exported pairs are renamed to ProjectName_001.png / .txt, bulk tag add is available in the regex modal,
+and frame selection is easier to keep across retag/export/delete actions.
+
+
 # Neme-Anima
 
 A three-step character LoRA builder:
